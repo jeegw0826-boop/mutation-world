@@ -54,14 +54,17 @@ body {
 let users = [];
 let currentUser = null;
 let adminPersona = 'normal';
+
 let posts = [];
 let promotions = [];
+
 let userProgress = {};
 let popupDismissed = {};
 
 let currentView = 'login';
 let currentSeason = null;
 let currentTab = 'viewer';
+
 let showSeasonPopups = false;
 let currentQuizData = null;
 let quizAnswers = {};
@@ -70,6 +73,26 @@ let popupPage = 0;
 let syncTimer = null;
 let saveQueue = Promise.resolve();
 let lastLoadedJSON = '';
+
+/* =========================================
+   관리자 계정
+========================================= */
+
+const ADMIN_ID = 'jeegwoo';
+const ADMIN_PASSWORD = 'wlrmsdn0826!';
+
+function isAdmin() {
+    return !!(
+        currentUser &&
+        currentUser.username === ADMIN_ID &&
+        currentUser.isAdmin === true
+    );
+}
+
+
+/* =========================================
+   JSONBIN
+========================================= */
 
 const JSONBIN_URL = () =>
     `https://api.jsonbin.io/v3/b/${window.JSONBIN_CONFIG.binId}`;
@@ -303,7 +326,13 @@ async function initSystem() {
             }
         }
 
-        currentView = currentUser ? 'dashboard' : 'login';
+        if (currentUser) {
+            currentView = 'dashboard';
+        } else {
+            currentView = 'login';
+        }
+
+        adminPersona = 'normal';
 
         lastLoadedJSON = JSON.stringify(databaseSnapshot());
 
@@ -400,15 +429,13 @@ function getDetailedTimeString() {
     return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
-function isAdmin() {
-    return !!currentUser?.isAdmin;
-}
-
 function getEffectiveAuthor() {
     if (isAdmin()) {
         if (adminPersona === 'alpha') return '알파';
         if (adminPersona === 'beta') return '베타';
         if (adminPersona === 'omega') return '오메가';
+
+        return '관리자';
     }
 
     return currentUser ? currentUser.username : '익명';
@@ -420,8 +447,62 @@ function handleLogin(e) {
     const id = document.getElementById('loginId').value.trim();
     const pw = document.getElementById('loginPw').value;
 
+    /*
+       관리자 전용 로그인
+       지정된 관리자 아이디와 비밀번호가 일치해야
+       관리자 계정으로 로그인할 수 있음.
+    */
+
+    if (id === ADMIN_ID) {
+
+        if (pw !== ADMIN_PASSWORD) {
+            alert('아이디 또는 비밀번호가 일치하지 않습니다.');
+            return;
+        }
+
+        let adminAccount = users.find(
+            u => u.username === ADMIN_ID
+        );
+
+        if (!adminAccount) {
+            adminAccount = {
+                username: ADMIN_ID,
+                password: ADMIN_PASSWORD,
+                isAdmin: true,
+                createdAt: getDetailedTimeString()
+            };
+
+            users.push(adminAccount);
+
+        } else {
+            adminAccount.password = ADMIN_PASSWORD;
+            adminAccount.isAdmin = true;
+        }
+
+        currentUser = adminAccount;
+
+        adminPersona = 'normal';
+
+        localStorage.setItem(
+            'mutation_world_current_user',
+            JSON.stringify({
+                username: ADMIN_ID
+            })
+        );
+
+        saveData().then(() => {
+            navigate('dashboard');
+        }).catch(() => {
+            alert('관리자 계정 저장에 실패했습니다.');
+        });
+
+        return;
+    }
+
     const found = users.find(
-        u => u.username === id && u.password === pw
+        u => u.username === id &&
+        u.password === pw &&
+        u.isAdmin !== true
     );
 
     if (!found) {
@@ -450,6 +531,11 @@ async function handleSignup(e) {
 
     if (id.length < 3 || pw.length < 4) {
         alert('아이디는 3자 이상, 비밀번호는 4자 이상 입력하세요.');
+        return;
+    }
+
+    if (id === ADMIN_ID) {
+        alert('해당 아이디는 사용할 수 없습니다.');
         return;
     }
 
@@ -489,7 +575,12 @@ function logout() {
 function setAdminPersona(persona) {
     if (!isAdmin()) return;
 
+    if (!['normal', 'alpha', 'beta', 'omega'].includes(persona)) {
+        return;
+    }
+
     adminPersona = persona;
+
     render();
 }
 
@@ -929,11 +1020,11 @@ function renderDashboard() {
 
                             <h2 class="font-bold text-purple-300">
                                 <i class="fa-solid fa-mask mr-2"></i>
-                                관리자 페르소나
+                                관리자 전용 · 실시간 AI 페르소나
                             </h2>
 
                             <span class="text-xs text-slate-400">
-                                선택한 이름으로 게시글·댓글 작성
+                                버튼을 누르면 작성자 닉네임이 변경됩니다.
                             </span>
 
                         </div>
@@ -941,17 +1032,17 @@ function renderDashboard() {
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
 
                             ${[
-                                ['normal', '기본'],
+                                ['normal', '관리자'],
                                 ['alpha', '알파'],
                                 ['beta', '베타'],
                                 ['omega', '오메가']
                             ].map(([v, n]) => `
                                 <button
                                     onclick="setAdminPersona('${v}')"
-                                    class="p-3 rounded-xl border ${
+                                    class="p-3 rounded-xl border transition ${
                                         adminPersona === v
                                             ? 'bg-purple-700 border-purple-400'
-                                            : 'bg-slate-950 border-slate-700'
+                                            : 'bg-slate-950 border-slate-700 hover:border-purple-500'
                                     }">
                                     ${n}
                                 </button>
@@ -959,10 +1050,21 @@ function renderDashboard() {
 
                         </div>
 
-                        <p class="text-xs text-purple-200">
-                            현재 표시 이름:
-                            <b class="text-white">${esc(getEffectiveAuthor())}</b>
-                        </p>
+                        <div class="bg-slate-950 rounded-xl p-4">
+
+                            <p class="text-xs text-slate-400 mb-1">
+                                현재 활성화된 페르소나
+                            </p>
+
+                            <p class="text-xl font-black text-purple-300">
+                                ${esc(getEffectiveAuthor())}
+                            </p>
+
+                            <p class="text-xs text-slate-500 mt-2">
+                                선택한 페르소나는 게시글, 댓글, 홍보 게시글에 적용됩니다.
+                            </p>
+
+                        </div>
 
                     </section>
                 ` : ''}
@@ -1112,7 +1214,12 @@ function renderSeason() {
     if (!season) return '';
 
     const seasonPosts = posts.filter(
-        p => p.season === currentSeason
+        p => p.season === currentSeason &&
+        (
+            currentTab === 'viewer'
+                ? p.type === 'viewer'
+                : p.type !== 'viewer'
+        )
     );
 
     const seasonPromos = promotions.filter(
@@ -1141,6 +1248,7 @@ function renderSeason() {
 
                 <span class="text-xs text-slate-400">
                     ${esc(currentUser.username)}
+                    ${isAdmin() ? ' · 관리자' : ''}
                 </span>
 
             </header>
@@ -1179,9 +1287,60 @@ function renderSeason() {
                             작가 및 고위 관계자가 공개한 공식 작품 내용을 확인하는 공간입니다.
                         </p>
 
-                        <p class="text-slate-500 text-xs mt-5">
-                            아직 등록된 공식 작품 내용이 없습니다.
+                    </section>
+
+                    ${isAdmin() ? `
+
+                        <section class="bg-slate-900 border border-purple-900 rounded-2xl p-5 space-y-3">
+
+                            <div class="flex items-center justify-between">
+                                <h3 class="font-bold text-purple-300">
+                                    <i class="fa-solid fa-lock mr-2"></i>
+                                    관리자 전용 작품 등록
+                                </h3>
+
+                                <span class="text-xs text-purple-400">
+                                    관리자만 작성 가능
+                                </span>
+                            </div>
+
+                            <input
+                                id="viewerTitle"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
+                                placeholder="작품 제목">
+
+                            <textarea
+                                id="viewerContent"
+                                rows="6"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
+                                placeholder="공식 작품 내용을 입력하세요">
+                            </textarea>
+
+                            <button
+                                onclick="createPost('viewer')"
+                                class="px-5 py-2 bg-purple-700 hover:bg-purple-600 rounded-lg font-bold">
+                                작품 등록
+                            </button>
+
+                        </section>
+
+                    ` : `
+                        <p class="text-center text-xs text-slate-500">
+                            뷰어는 관리자 전용 작품 아카이브입니다.
                         </p>
+                    `}
+
+                    <section class="space-y-4">
+
+                        <h3 class="font-bold text-xl">
+                            공식 작품 게시글
+                        </h3>
+
+                        ${
+                            seasonPosts.length
+                                ? seasonPosts.slice().reverse().map(renderPost).join('')
+                                : '<p class="text-center text-slate-500 py-10">아직 등록된 공식 작품 내용이 없습니다.</p>'
+                        }
 
                     </section>
 
@@ -1190,35 +1349,39 @@ function renderSeason() {
 
                 ${currentTab === 'writer' ? `
 
-                    ${isAdmin() ? `
+                    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
 
-                        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+                        <div class="flex justify-between items-center flex-wrap gap-2">
 
                             <h3 class="font-bold">
                                 새 게시글 작성
                             </h3>
 
-                            <input
-                                id="postTitle"
-                                class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
-                                placeholder="제목">
+                            <span class="text-xs text-slate-400">
+                                작성자: ${esc(getEffectiveAuthor())}
+                            </span>
 
-                            <textarea
-                                id="postContent"
-                                rows="4"
-                                class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
-                                placeholder="내용을 입력하세요">
-                            </textarea>
+                        </div>
 
-                            <button
-                                onclick="createPost()"
-                                class="px-5 py-2 bg-blue-600 rounded-lg font-bold">
-                                게시하기
-                            </button>
+                        <input
+                            id="postTitle"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
+                            placeholder="제목">
 
-                        </section>
+                        <textarea
+                            id="postContent"
+                            rows="4"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
+                            placeholder="내용을 입력하세요">
+                        </textarea>
 
-                    ` : ''}
+                        <button
+                            onclick="createPost('writer')"
+                            class="px-5 py-2 bg-blue-600 rounded-lg font-bold">
+                            게시하기
+                        </button>
+
+                    </section>
 
                     <section class="space-y-4">
 
@@ -1251,8 +1414,9 @@ function renderSeason() {
 
                         <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
 
-                            <h3 class="font-bold">
-                                관리자 홍보 게시글 작성
+                            <h3 class="font-bold text-rose-300">
+                                <i class="fa-solid fa-lock mr-2"></i>
+                                관리자 전용 홍보 게시글 작성
                             </h3>
 
                             <input
@@ -1267,11 +1431,17 @@ function renderSeason() {
                                 placeholder="홍보 내용">
                             </textarea>
 
-                            <input
-                                id="promoImage"
-                                type="file"
-                                accept="image/*"
-                                class="block w-full text-sm text-slate-400">
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-2">
+                                    홍보 이미지 첨부
+                                </label>
+
+                                <input
+                                    id="promoImage"
+                                    type="file"
+                                    accept="image/*"
+                                    class="block w-full text-sm text-slate-400">
+                            </div>
 
                             <button
                                 onclick="createPromotion()"
@@ -1281,7 +1451,11 @@ function renderSeason() {
 
                         </section>
 
-                    ` : ''}
+                    ` : `
+                        <p class="text-center text-xs text-slate-500">
+                            홍보 게시글은 관리자만 등록할 수 있습니다.
+                        </p>
+                    `}
 
                     <section class="space-y-4">
 
@@ -1319,13 +1493,115 @@ function setTab(value) {
 
 
 /* =========================================
+   좋아요 및 댓글 공통 기능
+========================================= */
+
+function getContentItem(id, type) {
+    if (type === 'promotion') {
+        return promotions.find(item => item.id === id);
+    }
+
+    return posts.find(item => item.id === id);
+}
+
+function renderInteractions(item, type) {
+    item.likedUsers ??= [];
+    item.comments ??= [];
+
+    const liked = item.likedUsers.includes(
+        currentUser.username
+    );
+
+    return `
+        <div class="flex items-center flex-wrap gap-4 border-t border-slate-800 pt-3">
+
+            <button
+                onclick="toggleLike('${item.id}','${type}')"
+                class="text-sm ${liked ? 'text-rose-400' : 'text-slate-400'}">
+
+                <i class="fa-solid fa-heart mr-1"></i>
+                좋아요 ${item.likedUsers.length}
+
+            </button>
+
+            <span class="text-xs text-slate-500">
+                댓글 ${item.comments.length}개
+            </span>
+
+            ${
+                isAdmin()
+                    ? `
+                        <span class="text-xs text-purple-300">
+                            좋아요:
+                            ${esc(item.likedUsers.join(', ') || '없음')}
+                        </span>
+                    `
+                    : ''
+            }
+
+        </div>
+
+        <div class="space-y-2">
+
+            ${item.comments.map(comment => `
+                <div class="bg-slate-950 rounded-lg p-3 text-sm">
+
+                    <div class="flex justify-between gap-2">
+
+                        <b class="text-blue-300">
+                            ${esc(comment.author)}
+                        </b>
+
+                        <span class="text-xs text-slate-600">
+                            ${esc(comment.createdAt)}
+                        </span>
+
+                    </div>
+
+                    <p class="text-slate-300 mt-1 whitespace-pre-wrap">
+                        ${esc(comment.content)}
+                    </p>
+
+                    ${
+                        isAdmin()
+                            ? `
+                                <p class="text-xs text-slate-600 mt-1">
+                                    계정: ${esc(comment.authorId)}
+                                </p>
+                            `
+                            : ''
+                    }
+
+                </div>
+            `).join('')}
+
+        </div>
+
+        <div class="flex gap-2">
+
+            <input
+                id="comment_${type}_${item.id}"
+                class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm"
+                placeholder="댓글 입력"
+                onkeydown="if(event.key==='Enter'){addComment('${item.id}','${type}')}">
+
+            <button
+                onclick="addComment('${item.id}','${type}')"
+                class="px-4 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">
+                등록
+            </button>
+
+        </div>
+    `;
+}
+
+
+/* =========================================
    게시글
 ========================================= */
 
 function renderPost(post) {
-    const liked = (post.likedUsers || []).includes(
-        currentUser.username
-    );
+    const type = 'post';
 
     return `
         <article class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
@@ -1342,11 +1618,27 @@ function renderPost(post) {
                         ${esc(post.author)} · ${esc(post.createdAt)}
                     </p>
 
+                    ${
+                        isAdmin()
+                            ? `
+                                <p class="text-xs text-slate-600 mt-1">
+                                    계정: ${esc(post.authorId || '')}
+                                </p>
+                            `
+                            : ''
+                    }
+
                 </div>
 
                 ${
-                    post.authorId === currentUser.username
-                        ? `<button onclick="deletePost('${post.id}')" class="text-xs text-rose-400">삭제</button>`
+                    isAdmin() || post.authorId === currentUser.username
+                        ? `
+                            <button
+                                onclick="deletePost('${post.id}')"
+                                class="text-xs text-rose-400">
+                                삭제
+                            </button>
+                        `
                         : ''
                 }
 
@@ -1356,75 +1648,28 @@ function renderPost(post) {
                 ${esc(post.content)}
             </p>
 
-            <div class="flex items-center gap-4">
-
-                <button
-                    onclick="toggleLike('${post.id}')"
-                    class="text-sm ${liked ? 'text-rose-400' : 'text-slate-400'}">
-
-                    <i class="fa-solid fa-heart mr-1"></i>
-                    ${(post.likedUsers || []).length}
-
-                </button>
-
-                <span class="text-xs text-slate-500">
-                    댓글 ${(post.comments || []).length}개
-                </span>
-
-                ${
-                    isAdmin()
-                        ? `<span class="text-xs text-purple-300">반응 확인: ${esc((post.likedUsers || []).join(', ') || '없음')}</span>`
-                        : ''
-                }
-
-            </div>
-
-            <div class="space-y-2">
-
-                ${(post.comments || []).map(comment => `
-                    <div class="bg-slate-950 rounded-lg p-3 text-sm">
-
-                        <div class="flex justify-between">
-
-                            <b>${esc(comment.author)}</b>
-
-                            <span class="text-xs text-slate-600">
-                                ${esc(comment.createdAt)}
-                            </span>
-
-                        </div>
-
-                        <p class="text-slate-300 mt-1 whitespace-pre-wrap">
-                            ${esc(comment.content)}
-                        </p>
-
-                    </div>
-                `).join('')}
-
-            </div>
-
-            <div class="flex gap-2">
-
-                <input
-                    id="comment_${post.id}"
-                    class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-                    placeholder="댓글 입력">
-
-                <button
-                    onclick="addComment('${post.id}')"
-                    class="px-4 bg-slate-700 rounded-lg text-sm">
-                    등록
-                </button>
-
-            </div>
+            ${renderInteractions(post, type)}
 
         </article>
     `;
 }
 
-function createPost() {
-    const title = document.getElementById('postTitle')?.value.trim();
-    const content = document.getElementById('postContent')?.value.trim();
+function createPost(type = 'writer') {
+    if (type === 'viewer' && !isAdmin()) {
+        alert('뷰어 게시글은 관리자만 작성할 수 있습니다.');
+        return;
+    }
+
+    let title;
+    let content;
+
+    if (type === 'viewer') {
+        title = document.getElementById('viewerTitle')?.value.trim();
+        content = document.getElementById('viewerContent')?.value.trim();
+    } else {
+        title = document.getElementById('postTitle')?.value.trim();
+        content = document.getElementById('postContent')?.value.trim();
+    }
 
     if (!title || !content) {
         alert('제목과 내용을 입력하세요.');
@@ -1434,6 +1679,7 @@ function createPost() {
     posts.push({
         id: crypto.randomUUID(),
         season: currentSeason,
+        type,
         title,
         content,
         author: getEffectiveAuthor(),
@@ -1449,7 +1695,14 @@ function createPost() {
 function deletePost(id) {
     const post = posts.find(p => p.id === id);
 
-    if (!post || post.authorId !== currentUser.username) return;
+    if (!post) return;
+
+    if (
+        !isAdmin() &&
+        post.authorId !== currentUser.username
+    ) {
+        return;
+    }
 
     if (!confirm('게시글을 삭제할까요?')) return;
 
@@ -1458,36 +1711,50 @@ function deletePost(id) {
     saveData().then(render);
 }
 
-function toggleLike(id) {
-    const post = posts.find(p => p.id === id);
 
-    if (!post) return;
+/* =========================================
+   좋아요
+========================================= */
 
-    post.likedUsers ??= [];
+function toggleLike(id, type = 'post') {
+    const item = getContentItem(id, type);
 
-    const index = post.likedUsers.indexOf(currentUser.username);
+    if (!item) return;
+
+    item.likedUsers ??= [];
+
+    const index = item.likedUsers.indexOf(
+        currentUser.username
+    );
 
     if (index >= 0) {
-        post.likedUsers.splice(index, 1);
+        item.likedUsers.splice(index, 1);
     } else {
-        post.likedUsers.push(currentUser.username);
+        item.likedUsers.push(currentUser.username);
     }
 
     saveData().then(render);
 }
 
-function addComment(id) {
-    const post = posts.find(p => p.id === id);
 
-    const input = document.getElementById('comment_' + id);
+/* =========================================
+   댓글
+========================================= */
+
+function addComment(id, type = 'post') {
+    const item = getContentItem(id, type);
+
+    const input = document.getElementById(
+        `comment_${type}_${id}`
+    );
 
     const content = input?.value.trim();
 
-    if (!post || !content) return;
+    if (!item || !content) return;
 
-    post.comments ??= [];
+    item.comments ??= [];
 
-    post.comments.push({
+    item.comments.push({
         author: getEffectiveAuthor(),
         authorId: currentUser.username,
         content,
@@ -1506,30 +1773,58 @@ function renderPromotion(promo) {
     return `
         <article class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
 
-            <h4 class="font-bold text-lg">
-                ${esc(promo.title)}
-            </h4>
+            <div class="flex justify-between gap-3">
 
-            <p class="text-xs text-slate-500">
-                ${esc(promo.author)} · ${esc(promo.createdAt)}
-            </p>
+                <div>
+                    <h4 class="font-bold text-lg">
+                        ${esc(promo.title)}
+                    </h4>
 
-            <p class="text-sm whitespace-pre-wrap">
+                    <p class="text-xs text-slate-500">
+                        ${esc(promo.author)} · ${esc(promo.createdAt)}
+                    </p>
+                </div>
+
+                ${
+                    isAdmin()
+                        ? `
+                            <button
+                                onclick="deletePromotion('${promo.id}')"
+                                class="text-xs text-rose-400">
+                                삭제
+                            </button>
+                        `
+                        : ''
+                }
+
+            </div>
+
+            <p class="text-sm whitespace-pre-wrap text-slate-300">
                 ${esc(promo.content)}
             </p>
 
             ${
                 promo.image
-                    ? `<img src="${promo.image}" alt="홍보 이미지" class="max-h-96 max-w-full rounded-xl mx-auto object-contain">`
+                    ? `
+                        <img
+                            src="${promo.image}"
+                            alt="홍보 이미지"
+                            class="max-h-96 max-w-full rounded-xl mx-auto object-contain">
+                    `
                     : ''
             }
+
+            ${renderInteractions(promo, 'promotion')}
 
         </article>
     `;
 }
 
 async function createPromotion() {
-    if (!isAdmin()) return;
+    if (!isAdmin()) {
+        alert('홍보 게시글은 관리자만 작성할 수 있습니다.');
+        return;
+    }
 
     const title = document.getElementById('promoTitle')?.value.trim();
     const content = document.getElementById('promoContent')?.value.trim();
@@ -1544,6 +1839,11 @@ async function createPromotion() {
     let image = '';
 
     if (file) {
+
+        if (!file.type.startsWith('image/')) {
+            alert('이미지 파일만 첨부할 수 있습니다.');
+            return;
+        }
 
         if (file.size > 1500000) {
             alert('이미지는 1.5MB 이하로 선택하세요.');
@@ -1569,8 +1869,25 @@ async function createPromotion() {
         content,
         image,
         author: getEffectiveAuthor(),
-        createdAt: getDetailedTimeString()
+        authorId: currentUser.username,
+        createdAt: getDetailedTimeString(),
+        likedUsers: [],
+        comments: []
     });
+
+    saveData().then(render);
+}
+
+function deletePromotion(id) {
+    if (!isAdmin()) return;
+
+    const promo = promotions.find(p => p.id === id);
+
+    if (!promo) return;
+
+    if (!confirm('홍보 게시글을 삭제할까요?')) return;
+
+    promotions = promotions.filter(p => p.id !== id);
 
     saveData().then(render);
 }
