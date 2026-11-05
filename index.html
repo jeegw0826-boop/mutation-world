@@ -1,876 +1,1587 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>변이 세상 - 공식 팬 커뮤니티 & 아카이브</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>변이 세상 - 공식 팬 커뮤니티 & 아카이브</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- JSONBin 설정 -->
-    <script>
-        window.JSONBIN_CONFIG = {
-            binId: "6aec6a0fac6210605a6ee193",
-            accessKey: "$2a$10$yenP1XyQ0cyddblo2BaT.Os2QVsMjBCico4e9gQCWX7FPSaTF2VMW"
-        };
-    </script>
+<script>
+window.JSONBIN_CONFIG = {
+    binId: "6aec6a0fac6210605a6ee193",
+    accessKey: "$2a$10$yenP1XyQ0cyddblo2BaT.Os2QVsMjBCico4e9gQCWX7FPSaTF2VMW"
+};
+</script>
 
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
-        body { font-family: 'Noto Sans KR', sans-serif; }
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
 
-        @keyframes glitch {
-            0% { transform: translate(0) }
-            20% { transform: translate(-2px, 2px) }
-            40% { transform: translate(-2px, -2px) }
-            60% { transform: translate(2px, 2px) }
-            80% { transform: translate(2px, -2px) }
-            100% { transform: translate(0) }
-        }
-        .glitch-effect {
-            animation: glitch 0.3s infinite;
-            color: #ef4444;
-            text-shadow: 2px 0 #3b82f6, -2px 0 #10b981;
-        }
-    </style>
+body {
+    font-family: 'Noto Sans KR', sans-serif;
+}
+
+@keyframes glitch {
+    0% { transform: translate(0); }
+    20% { transform: translate(-2px, 2px); }
+    40% { transform: translate(-2px, -2px); }
+    60% { transform: translate(2px, 2px); }
+    80% { transform: translate(2px, -2px); }
+    100% { transform: translate(0); }
+}
+
+.glitch-effect {
+    animation: glitch 0.3s infinite;
+    color: #ef4444;
+    text-shadow: 2px 0 #3b82f6, -2px 0 #10b981;
+}
+
+.modal-backdrop {
+    background: rgba(2, 6, 23, 0.88);
+}
+</style>
 </head>
+
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
 
-    <div id="app" class="flex-1 flex flex-col">
-        <div class="flex-1 flex items-center justify-center">
-            <div class="text-slate-400 animate-pulse">데이터 동기화 및 시스템 로딩 중...</div>
-        </div>
+<div id="app" class="flex-1 flex flex-col">
+    <div class="flex-1 flex items-center justify-center text-slate-400 animate-pulse">
+        데이터 동기화 및 시스템 로딩 중...
     </div>
+</div>
 
-    <script>
-        let users = [];
-        let currentUser = null;
-        let adminPersona = 'normal';
-        let posts = [];
-        let userProgress = {};
-        let popupDismissed = {};
+<script>
+let users = [];
+let currentUser = null;
+let adminPersona = 'normal';
+let posts = [];
+let promotions = [];
+let userProgress = {};
+let popupDismissed = {};
 
-        let currentView = 'login';
-        let currentSeason = null;
-        let currentTab = 'viewer';
-        let showSeasonPopups = false;
-        let currentQuizData = null;
-        let quizAnswers = {};
+let currentView = 'login';
+let currentSeason = null;
+let currentTab = 'viewer';
+let showSeasonPopups = false;
+let currentQuizData = null;
+let quizAnswers = {};
+let popupPage = 0;
 
-        const JSONBIN_URL = () =>
-            `https://api.jsonbin.io/v3/b/${window.JSONBIN_CONFIG.binId}`;
+let syncTimer = null;
+let saveQueue = Promise.resolve();
+let lastLoadedJSON = '';
 
-        let syncTimer = null;
-        let saveQueue = Promise.resolve();
-        let lastLoadedJSON = '';
+const JSONBIN_URL = () =>
+    `https://api.jsonbin.io/v3/b/${window.JSONBIN_CONFIG.binId}`;
 
-        function validateJSONBin() {
-            const config = window.JSONBIN_CONFIG || {};
 
-            if (!config.binId || config.binId.includes('YOUR_') ||
-                !config.accessKey || config.accessKey.includes('YOUR_')) {
-                throw new Error(
-                    'index.html 상단에 JSONBin Bin ID와 Access Key를 입력하세요.'
-                );
+/* =========================================
+   시즌 설정
+========================================= */
+
+const seasons = {
+    s1: {
+        name: '1기',
+        theme: 'blue',
+        banner: '세상이 변이 되었다. 모든 동물이 거대화 되었다. 이 세상에서 살아남아라.'
+    },
+
+    s2: {
+        name: '2기',
+        theme: 'emerald',
+        banner: '여성형 거생은 실ㅡ 여성형 거생은 실ㅂㅡ 여성ㅡ 여ㅡ 여ㅡ 여ㅡ 여ㅡ'
+    },
+
+    s3p1: {
+        name: '3기 PART 1',
+        theme: 'slate',
+        banner: '나라가 혼란스럽다. 너희들의 존재이유는 무엇이냐.'
+    },
+
+    s3p2: {
+        name: '3기 PART 2',
+        theme: 'rose',
+        banner: '점점 밝혀지는 세상의 비밀. 영원히 빛나라, 그대들이여.'
+    }
+};
+
+
+/* =========================================
+   퀴즈 설정
+========================================= */
+
+const quizzes = {
+
+    s2: {
+        title: '2기 진입 퀴즈 (1기 복습)',
+
+        questions: [
+            {
+                q: '해당 세계관에서 동물의 변이가 일어난 연도는?',
+                answers: ['1573년', '1573']
+            },
+            {
+                q: '주인공의 이름은?',
+                answers: ['지그문트 보그트', '지그문트', '보그트']
+            },
+            {
+                q: '주인공의 엄마를 잡아먹은 이는?',
+                answers: ['곰 거생', '곰']
+            },
+            {
+                q: '주인공이 살던 제국의 이름은?',
+                answers: ['에테르니아 제국', '에테르니아']
             }
-        }
+        ],
 
-        async function jsonBinRequest(method, data) {
-            validateJSONBin();
+        nextSeason: 's2'
+    },
 
-            const response = await fetch(
-                method === 'GET'
-                    ? `${JSONBIN_URL()}/latest`
-                    : JSONBIN_URL(),
-                {
-                    method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Access-Key': window.JSONBIN_CONFIG.accessKey
-                    },
-                    ...(data ? { body: JSON.stringify(data) } : {})
-                }
-            );
+    s3p1: {
+        title: '3기 PART 1 진입 퀴즈 (2기 복습)',
 
-            const result = await response.json().catch(() => ({}));
-
-            if (!response.ok) {
-                throw new Error(
-                    result.message || `JSONBin 요청 실패 (${response.status})`
-                );
+        questions: [
+            {
+                q: '여성형 거생의 정체는?',
+                answers: ['실비아 차이스', '실비아']
+            },
+            {
+                q: '말을 하는 거생의 풀네임은?',
+                answers: ['영장류 거생']
+            },
+            {
+                q: '초대형 거생의 크기는?',
+                answers: ['50m', '50미터', '50']
+            },
+            {
+                q: '남반구 총괄자의 이름은?',
+                answers: ['카르민 레키']
             }
+        ],
 
-            return result.record || result;
-        }
+        nextSeason: 's3p1'
+    },
 
-        function applyDatabase(record) {
-            users = Array.isArray(record.users) ? record.users : [];
-            posts = Array.isArray(record.posts) ? record.posts : [];
+    s3p2: {
+        title: '3기 PART 2 진입 퀴즈 (3기 PART 1 복습)',
 
-            userProgress =
-                record.userProgress &&
-                typeof record.userProgress === 'object'
-                    ? record.userProgress
-                    : {};
-
-            popupDismissed =
-                record.popupDismissed &&
-                typeof record.popupDismissed === 'object'
-                    ? record.popupDismissed
-                    : {};
-        }
-
-        function databaseSnapshot() {
-            return {
-                users,
-                posts,
-                userProgress,
-                popupDismissed
-            };
-        }
-
-        async function initSystem() {
-            try {
-                validateJSONBin();
-
-                const record = await jsonBinRequest('GET');
-                applyDatabase(record);
-
-                const savedUser = localStorage.getItem(
-                    'mutation_world_current_user'
-                );
-
-                if (savedUser) {
-                    try {
-                        const saved = JSON.parse(savedUser);
-
-                        currentUser = users.find(
-                            u => u.username === saved.username
-                        ) || null;
-                    } catch (_) {
-                        currentUser = null;
-                    }
-                }
-
-                currentView = currentUser ? 'dashboard' : 'login';
-
-                lastLoadedJSON = JSON.stringify(databaseSnapshot());
-
-                if (syncTimer) clearInterval(syncTimer);
-
-                syncTimer = setInterval(refreshSharedData, 8000);
-
-                render();
-
-            } catch (error) {
-                document.getElementById('app').innerHTML = `
-                    <div class="m-auto max-w-xl p-6 text-center">
-                        <h2 class="text-xl font-bold text-rose-400 mb-3">
-                            JSONBin 연결 실패
-                        </h2>
-                        <p class="text-slate-300 text-sm">
-                            ${error.message}
-                        </p>
-                        <p class="text-slate-500 text-xs mt-3">
-                            JSONBin에 데이터가 든 Bin을 만들고 상단 설정값을 확인한 뒤 새로고침하세요.
-                        </p>
-                    </div>`;
+        questions: [
+            {
+                q: '카르민 셜몽을 죽인 이의 풀네임은?',
+                answers: ['카르민 스나구']
+            },
+            {
+                q: '3기 PART 1에서 지그문트 보그트가 납치당한 횟수는?',
+                answers: ['2회', '2']
+            },
+            {
+                q: '마지막에 나가는 조사의 횟수는?',
+                answers: ['58회', '58회 조사', '58']
             }
-        }
+        ],
 
-        async function refreshSharedData() {
-            try {
-                const record = await jsonBinRequest('GET');
+        nextSeason: 's3p2'
+    }
+};
 
-                const incoming = {
-                    users: Array.isArray(record.users) ? record.users : [],
-                    posts: Array.isArray(record.posts) ? record.posts : [],
-                    userProgress: record.userProgress || {},
-                    popupDismissed: record.popupDismissed || {}
-                };
 
-                const incomingJSON = JSON.stringify(incoming);
+/* =========================================
+   공통 함수
+========================================= */
 
-                if (incomingJSON !== lastLoadedJSON) {
-                    const activeUsername =
-                        currentUser ? currentUser.username : null;
+function esc(value = '') {
+    return String(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
 
-                    applyDatabase(incoming);
+function validateJSONBin() {
+    const config = window.JSONBIN_CONFIG || {};
 
-                    currentUser = activeUsername
-                        ? users.find(u => u.username === activeUsername) || null
-                        : null;
+    if (
+        !config.binId ||
+        config.binId.includes('YOUR_') ||
+        !config.accessKey ||
+        config.accessKey.includes('YOUR_')
+    ) {
+        throw new Error(
+            'index.html 상단에 JSONBin Bin ID와 Access Key를 입력하세요.'
+        );
+    }
+}
 
-                    lastLoadedJSON = incomingJSON;
+async function jsonBinRequest(method, data) {
+    validateJSONBin();
 
-                    if (!currentUser &&
-                        currentView !== 'login' &&
-                        currentView !== 'signup') {
-                        currentView = 'login';
-                    }
+    const response = await fetch(
+        method === 'GET'
+            ? `${JSONBIN_URL()}/latest`
+            : JSONBIN_URL(),
+        {
+            method,
 
-                    render();
-                }
-
-            } catch (error) {
-                console.warn('JSONBin 동기화 실패:', error);
-            }
-        }
-
-        function saveData() {
-            saveQueue = saveQueue.then(async () => {
-                const snapshot = databaseSnapshot();
-
-                await jsonBinRequest('PUT', snapshot);
-
-                lastLoadedJSON = JSON.stringify(snapshot);
-            });
-
-            return saveQueue.catch(error => {
-                alert('온라인 저장에 실패했습니다: ' + error.message);
-                throw error;
-            });
-        }
-
-        function getDetailedTimeString() {
-            const now = new Date();
-
-            return `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        }
-
-        function getEffectiveAuthor() {
-            if (currentUser && currentUser.isAdmin) {
-                if (adminPersona === 'alpha') return '알파';
-                if (adminPersona === 'beta') return '베타';
-                if (adminPersona === 'omega') return '오메가';
-            }
-
-            return currentUser ? currentUser.username : '익명';
-        }
-
-        function navigate(view, season = null, tab = 'viewer') {
-            currentView = view;
-
-            if (season) {
-                currentSeason = season;
-
-                const todayStr = new Date().toDateString();
-                const dismissKey = `${currentUser.username}_${season}`;
-
-                showSeasonPopups =
-                    (popupDismissed[dismissKey] !== todayStr);
-
-            } else {
-                currentSeason = null;
-                showSeasonPopups = false;
-            }
-
-            if (tab) currentTab = tab;
-
-            render();
-        }
-
-        function closePopups() {
-            showSeasonPopups = false;
-            render();
-        }
-
-        function dismissPopupsToday() {
-            const todayStr = new Date().toDateString();
-            const dismissKey = `${currentUser.username}_${currentSeason}`;
-
-            popupDismissed[dismissKey] = todayStr;
-            showSeasonPopups = false;
-
-            saveData();
-            render();
-        }
-
-        const quizzes = {
-            s2: {
-                title: '2기 진입 퀴즈 (시즌 1 복습)',
-                questions: [
-                    {
-                        q: '해당 세계관에서 동물의 변이가 일어난 연도는?',
-                        answers: ['1573년', '1573']
-                    },
-                    {
-                        q: '주인공의 이름은?',
-                        answers: ['지그문트 보그트', '지그문트', '보그트']
-                    },
-                    {
-                        q: '주인공의 엄마를 잡아먹은 이는?',
-                        answers: ['곰 거생', '곰']
-                    },
-                    {
-                        q: '주인공이 살던 제국의 이름은?',
-                        answers: ['에테르니아 제국', '에테르니아']
-                    }
-                ],
-                nextSeason: 's2'
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Access-Key': window.JSONBIN_CONFIG.accessKey
             },
 
-            s3p1: {
-                title: '3기 PART 1 진입 퀴즈 (시즌 2 복습)',
-                questions: [
-                    {
-                        q: '여성형 거생의 정체는?',
-                        answers: ['실비아 차이스', '실비아']
-                    },
-                    {
-                        q: '말을 하는 거생의 풀네임은?',
-                        answers: ['영장류 거생']
-                    },
-                    {
-                        q: '초대형 거생의 크기는?',
-                        answers: ['50m', '50미터', '50']
-                    },
-                    {
-                        q: '남반구 총괄자의 이름은?',
-                        answers: ['카르민 레키']
-                    }
-                ],
-                nextSeason: 's3p1'
-            },
+            ...(data ? {
+                body: JSON.stringify(data)
+            } : {})
+        }
+    );
 
-            s3p2: {
-                title: '3기 PART 2 진입 퀴즈 (3기 PART 1 복습)',
-                questions: [
-                    {
-                        q: '카르민 셜몽을 죽인 이의 풀네임은?',
-                        answers: ['카르민 스나구']
-                    },
-                    {
-                        q: '3기 part1 내에서 지그문트 보그트가 납치당한 횟수는?',
-                        answers: ['2회', '2']
-                    },
-                    {
-                        q: '마지막에 나가는 조사의 횟수는?',
-                        answers: ['58회', '58회 조사', '58']
-                    }
-                ],
-                nextSeason: 's3p2'
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(
+            result.message || `JSONBin 요청 실패 (${response.status})`
+        );
+    }
+
+    return result.record || result;
+}
+
+function applyDatabase(record) {
+    users = Array.isArray(record.users) ? record.users : [];
+    posts = Array.isArray(record.posts) ? record.posts : [];
+    promotions = Array.isArray(record.promotions) ? record.promotions : [];
+
+    userProgress =
+        record.userProgress &&
+        typeof record.userProgress === 'object'
+            ? record.userProgress
+            : {};
+
+    popupDismissed =
+        record.popupDismissed &&
+        typeof record.popupDismissed === 'object'
+            ? record.popupDismissed
+            : {};
+}
+
+function databaseSnapshot() {
+    return {
+        users,
+        posts,
+        promotions,
+        userProgress,
+        popupDismissed
+    };
+}
+
+
+/* =========================================
+   데이터 초기화 및 동기화
+========================================= */
+
+async function initSystem() {
+    try {
+        validateJSONBin();
+
+        const record = await jsonBinRequest('GET');
+        applyDatabase(record);
+
+        const savedUser = localStorage.getItem(
+            'mutation_world_current_user'
+        );
+
+        if (savedUser) {
+            try {
+                const saved = JSON.parse(savedUser);
+
+                currentUser = users.find(
+                    u => u.username === saved.username
+                ) || null;
+
+            } catch (_) {
+                currentUser = null;
             }
+        }
+
+        currentView = currentUser ? 'dashboard' : 'login';
+
+        lastLoadedJSON = JSON.stringify(databaseSnapshot());
+
+        if (syncTimer) clearInterval(syncTimer);
+
+        syncTimer = setInterval(refreshSharedData, 8000);
+
+        render();
+
+    } catch (error) {
+        document.getElementById('app').innerHTML = `
+            <div class="m-auto max-w-xl p-6 text-center">
+                <h2 class="text-xl font-bold text-rose-400 mb-3">
+                    JSONBin 연결 실패
+                </h2>
+
+                <p class="text-slate-300 text-sm">
+                    ${esc(error.message)}
+                </p>
+
+                <p class="text-slate-500 text-xs mt-3">
+                    JSONBin Bin과 상단 설정값을 확인한 뒤 새로고침하세요.
+                </p>
+            </div>
+        `;
+    }
+}
+
+async function refreshSharedData() {
+    try {
+        const record = await jsonBinRequest('GET');
+
+        const incoming = {
+            users: Array.isArray(record.users) ? record.users : [],
+            posts: Array.isArray(record.posts) ? record.posts : [],
+            promotions: Array.isArray(record.promotions) ? record.promotions : [],
+            userProgress: record.userProgress || {},
+            popupDismissed: record.popupDismissed || {}
         };
 
-        function startQuiz(seasonKey) {
-            currentQuizData = quizzes[seasonKey];
-            quizAnswers = {};
-            currentView = 'quiz';
+        const incomingJSON = JSON.stringify(incoming);
+
+        if (incomingJSON !== lastLoadedJSON) {
+            const activeUsername =
+                currentUser ? currentUser.username : null;
+
+            applyDatabase(incoming);
+
+            currentUser = activeUsername
+                ? users.find(u => u.username === activeUsername) || null
+                : null;
+
+            lastLoadedJSON = incomingJSON;
+
+            if (
+                !currentUser &&
+                currentView !== 'login' &&
+                currentView !== 'signup'
+            ) {
+                currentView = 'login';
+            }
+
             render();
         }
 
-        function submitQuiz() {
-            let allCorrect = true;
+    } catch (error) {
+        console.warn('JSONBin 동기화 실패:', error);
+    }
+}
 
-            currentQuizData.questions.forEach((item, index) => {
-                const userAns = (quizAnswers[index] || '')
-                    .trim()
-                    .replace(/\s+/g, '');
+function saveData() {
+    saveQueue = saveQueue.then(async () => {
+        const snapshot = databaseSnapshot();
 
-                const isMatch = item.answers.some(
-                    ans => ans.replace(/\s+/g, '') === userAns
-                );
+        await jsonBinRequest('PUT', snapshot);
 
-                if (!isMatch) allCorrect = false;
-            });
+        lastLoadedJSON = JSON.stringify(snapshot);
+    });
 
-            if (allCorrect) {
-                alert('퀴즈 정통과! 해당 기수의 입장이 허용됩니다.');
+    return saveQueue.catch(error => {
+        alert('온라인 저장에 실패했습니다: ' + error.message);
+        throw error;
+    });
+}
 
-                if (!userProgress[currentUser.username]) {
-                    userProgress[currentUser.username] = {};
-                }
 
-                userProgress[currentUser.username][
-                    currentQuizData.nextSeason
-                ] = true;
+/* =========================================
+   사용자 및 관리자
+========================================= */
 
-                saveData();
+function getDetailedTimeString() {
+    const now = new Date();
 
-                navigate(
-                    'season',
-                    currentQuizData.nextSeason,
-                    'viewer'
-                );
+    return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
 
-            } else {
-                alert('정답이 틀렸습니다. 다시 확인하고 도전해주세요!');
-            }
-        }
+function isAdmin() {
+    return !!currentUser?.isAdmin;
+}
 
-        function render() {
-            const app = document.getElementById('app');
+function getEffectiveAuthor() {
+    if (isAdmin()) {
+        if (adminPersona === 'alpha') return '알파';
+        if (adminPersona === 'beta') return '베타';
+        if (adminPersona === 'omega') return '오메가';
+    }
 
-            if (!app) return;
+    return currentUser ? currentUser.username : '익명';
+}
 
-            app.innerHTML = '';
+function handleLogin(e) {
+    e.preventDefault();
 
-            if (currentView === 'login') {
-                app.innerHTML = renderLoginScreen();
+    const id = document.getElementById('loginId').value.trim();
+    const pw = document.getElementById('loginPw').value;
 
-            } else if (currentView === 'signup') {
-                app.innerHTML = renderSignupScreen();
+    const found = users.find(
+        u => u.username === id && u.password === pw
+    );
 
-            } else if (currentView === 'dashboard') {
-                app.innerHTML = renderDashboard();
+    if (!found) {
+        alert('아이디 또는 비밀번호가 일치하지 않습니다.');
+        return;
+    }
 
-            } else if (currentView === 'quiz') {
-                app.innerHTML = renderQuizScreen();
+    currentUser = found;
+    adminPersona = 'normal';
 
-            } else if (currentView === 'season') {
-                app.innerHTML = renderSeasonScreen();
-            }
-        }
+    localStorage.setItem(
+        'mutation_world_current_user',
+        JSON.stringify({
+            username: found.username
+        })
+    );
 
-        function renderLoginScreen() {
-            return `
-                <div class="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-purple-950 to-slate-950">
-                    <div class="max-w-md w-full bg-slate-900/80 backdrop-blur-md p-8 rounded-2xl border border-slate-800 shadow-2xl">
-                        <div class="text-center mb-8">
-                            <h1 class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-500 mb-2">
-                                변이 세상
-                            </h1>
-                            <p class="text-slate-400 text-sm">
-                                공식 팬 커뮤니티 & 아카이브 시스템 (온라인 공유 모드)
-                            </p>
-                        </div>
+    navigate('dashboard');
+}
 
-                        <form onsubmit="handleLogin(event)" class="space-y-5">
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">
-                                    아이디
-                                </label>
-                                <input
-                                    type="text"
-                                    id="loginId"
-                                    required
-                                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500 transition"
-                                    placeholder="아이디 입력">
-                            </div>
+async function handleSignup(e) {
+    e.preventDefault();
 
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">
-                                    비밀번호
-                                </label>
-                                <input
-                                    type="password"
-                                    id="loginPw"
-                                    required
-                                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500 transition"
-                                    placeholder="비밀번호 입력">
-                            </div>
+    const id = document.getElementById('signupId').value.trim();
+    const pw = document.getElementById('signupPw').value;
 
-                            <button
-                                type="submit"
-                                class="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg transition">
-                                로그인
-                            </button>
-                        </form>
+    if (id.length < 3 || pw.length < 4) {
+        alert('아이디는 3자 이상, 비밀번호는 4자 이상 입력하세요.');
+        return;
+    }
 
-                        <div class="mt-6 text-center">
-                            <button
-                                onclick="navigate('signup')"
-                                class="text-sm text-blue-400 hover:underline">
-                                계정이 없으신가요? 회원가입
-                            </button>
-                        </div>
-                    </div>
+    if (users.some(u => u.username === id)) {
+        alert('이미 존재하는 아이디입니다.');
+        return;
+    }
+
+    users.push({
+        username: id,
+        password: pw,
+        isAdmin: false,
+        createdAt: getDetailedTimeString()
+    });
+
+    try {
+        await saveData();
+
+        alert('회원가입 완료! 로그인해주세요.');
+
+        navigate('login');
+
+    } catch (error) {
+        users = users.filter(u => u.username !== id);
+    }
+}
+
+function logout() {
+    currentUser = null;
+    adminPersona = 'normal';
+
+    localStorage.removeItem('mutation_world_current_user');
+
+    navigate('login');
+}
+
+function setAdminPersona(persona) {
+    if (!isAdmin()) return;
+
+    adminPersona = persona;
+    render();
+}
+
+
+/* =========================================
+   화면 이동 및 팝업
+========================================= */
+
+function navigate(view, season = null, tab = 'viewer') {
+    currentView = view;
+
+    if (season) {
+        currentSeason = season;
+
+        const todayStr = new Date().toDateString();
+        const dismissKey = `${currentUser.username}_${season}`;
+
+        showSeasonPopups =
+            popupDismissed[dismissKey] !== todayStr;
+
+        popupPage = 0;
+
+    } else {
+        currentSeason = null;
+        showSeasonPopups = false;
+    }
+
+    if (tab) currentTab = tab;
+
+    render();
+}
+
+function closePopups() {
+    showSeasonPopups = false;
+    render();
+}
+
+function dismissPopupsToday() {
+    const todayStr = new Date().toDateString();
+
+    const dismissKey =
+        `${currentUser.username}_${currentSeason}`;
+
+    popupDismissed[dismissKey] = todayStr;
+
+    showSeasonPopups = false;
+
+    saveData();
+    render();
+}
+
+function renderPopups() {
+    const content = [
+        [
+            '시즌 안내',
+            '이 공간은 해당 시즌의 작품과 팬 활동을 위한 공간입니다.'
+        ],
+        [
+            '커뮤니티 이용 안내',
+            '서로를 존중하며 스포일러와 의견을 구분해 게시해주세요.'
+        ],
+        [
+            '온라인 데이터 안내',
+            '게시글과 댓글은 JSONBin을 통해 다른 접속자와 공유됩니다.'
+        ]
+    ];
+
+    return `
+        <div class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+            <div class="max-w-lg w-full bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl">
+
+                <div class="flex justify-between items-center mb-5">
+                    <span class="text-xs text-slate-400">
+                        시즌 안내 ${popupPage + 1} / 3
+                    </span>
+
+                    <button onclick="closePopups()" class="text-slate-400">
+                        <i class="fa-solid fa-xmark text-xl"></i>
+                    </button>
                 </div>
-            `;
-        }
 
-        function handleLogin(e) {
-            e.preventDefault();
+                <h3 class="text-2xl font-black mb-3">
+                    ${content[popupPage][0]}
+                </h3>
 
-            const id = document.getElementById('loginId').value.trim();
-            const pw = document.getElementById('loginPw').value.trim();
+                <p class="text-slate-300 leading-7">
+                    ${content[popupPage][1]}
+                </p>
 
-            const found = users.find(
-                u => u.username === id && u.password === pw
-            );
+                <div class="flex justify-between items-center mt-8 gap-2">
 
-            if (found) {
-                currentUser = found;
-                adminPersona = 'normal';
+                    <button
+                        onclick="dismissPopupsToday()"
+                        class="text-xs text-slate-400 underline">
+                        오늘 계속 닫기
+                    </button>
 
-                localStorage.setItem(
-                    'mutation_world_current_user',
-                    JSON.stringify(currentUser)
-                );
+                    <div class="flex gap-2">
 
-                navigate('dashboard');
-
-            } else {
-                alert('아이디 또는 비밀번호가 일치하지 않습니다.');
-            }
-        }
-
-        function renderSignupScreen() {
-            return `
-                <div class="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-purple-950 to-slate-950">
-                    <div class="max-w-md w-full bg-slate-900/80 backdrop-blur-md p-8 rounded-2xl border border-slate-800 shadow-2xl">
-                        <div class="text-center mb-8">
-                            <h1 class="text-3xl font-black text-white mb-2">
-                                회원가입
-                            </h1>
-                            <p class="text-slate-400 text-sm">
-                                변이 세상의 시민이 되어주세요
-                            </p>
-                        </div>
-
-                        <form onsubmit="handleSignup(event)" class="space-y-5">
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">
-                                    아이디
-                                </label>
-                                <input
-                                    type="text"
-                                    id="signupId"
-                                    required
-                                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500 transition"
-                                    placeholder="사용할 아이디">
-                            </div>
-
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">
-                                    비밀번호
-                                </label>
-                                <input
-                                    type="password"
-                                    id="signupPw"
-                                    required
-                                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500 transition"
-                                    placeholder="사용할 비밀번호">
-                            </div>
-
+                        ${popupPage > 0 ? `
                             <button
-                                type="submit"
-                                class="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl shadow-lg transition">
-                                가입 완료
+                                onclick="popupPage--;render()"
+                                class="px-4 py-2 bg-slate-700 rounded-lg text-sm">
+                                이전
                             </button>
-                        </form>
-
-                        <div class="mt-6 text-center">
-                            <button
-                                onclick="navigate('login')"
-                                class="text-sm text-slate-400 hover:underline">
-                                로그인 화면으로 돌아가기
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        async function handleSignup(e) {
-            e.preventDefault();
-
-            const id = document.getElementById('signupId').value.trim();
-            const pw = document.getElementById('signupPw').value.trim();
-
-            if (users.some(u => u.username === id)) {
-                alert('이미 존재하는 아이디입니다.');
-                return;
-            }
-
-            if (id.length < 3 || pw.length < 4) {
-                alert('아이디는 3자 이상, 비밀번호는 4자 이상 입력하세요.');
-                return;
-            }
-
-            const newUser = {
-                username: id,
-                password: pw,
-                isAdmin: false
-            };
-
-            users.push(newUser);
-
-            try {
-                await saveData();
-
-                alert('회원가입 완료! 로그인해주세요.');
-                navigate('login');
-
-            } catch (error) {
-                users = users.filter(u => u.username !== id);
-            }
-        }
-
-        function renderDashboard() {
-            if (!currentUser) return '';
-
-            const isAdmin = currentUser.isAdmin;
-            const progress = userProgress[currentUser.username] || {};
-
-            const isS2Unlocked = isAdmin || progress.s2;
-            const isS3P1Unlocked = isAdmin || progress.s3p1;
-            const isS3P2Unlocked = isAdmin || progress.s3p2;
-
-            return `
-                <div class="flex-1 flex flex-col">
-                    <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-                        <div class="flex items-center space-x-4">
-                            <h1 class="text-xl font-black bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                                변이 세상
-                            </h1>
-                            <span class="text-xs px-2.5 py-1 bg-slate-800 rounded-full text-slate-300">
-                                반가워요,
-                                <strong class="text-white">${currentUser.username}</strong>님
-                                ${isAdmin ? '(관리자)' : ''}
-                            </span>
-                        </div>
-
-                        <button
-                            onclick="logout()"
-                            class="text-xs text-rose-400 hover:text-rose-300 font-semibold px-3 py-1.5 bg-rose-950/30 border border-rose-900/50 rounded-lg transition">
-                            로그아웃
-                        </button>
-                    </header>
-
-                    <main class="flex-1 max-w-6xl w-full mx-auto p-6 space-y-8">
-                        ${isAdmin ? `
-                            <div class="bg-slate-900/90 border border-purple-900/50 rounded-2xl p-6 shadow-xl space-y-4">
-                                <div class="flex items-center justify-between">
-                                    <h2 class="text-lg font-bold text-purple-300 flex items-center gap-2">
-                                        <i class="fa-solid fa-mask"></i>
-                                        관리자 AI 페르소나 변장 모드
-                                    </h2>
-                                    <span class="text-xs text-slate-400">
-                                        선택한 캐릭터로 댓글/게시글 작성
-                                    </span>
-                                </div>
-
-                                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    <button
-                                        onclick="setAdminPersona('normal')"
-                                        class="p-3 rounded-xl border text-xs font-bold transition ${adminPersona === 'normal' ? 'bg-purple-600 border-purple-400 text-white' : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-900'}">
-                                        기본 (관리자 계정명)
-                                    </button>
-
-                                    <button
-                                        onclick="setAdminPersona('alpha')"
-                                        class="p-3 rounded-xl border text-xs font-bold transition ${adminPersona === 'alpha' ? 'bg-cyan-600 border-cyan-400 text-white' : 'bg-slate-950 border-slate-800 text-cyan-400 hover:bg-slate-900'}">
-                                        [AI] 알파로 변장
-                                    </button>
-
-                                    <button
-                                        onclick="setAdminPersona('beta')"
-                                        class="p-3 rounded-xl border text-xs font-bold transition ${adminPersona === 'beta' ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-950 border-slate-800 text-emerald-400 hover:bg-slate-900'}">
-                                        [AI] 베타로 변장
-                                    </button>
-
-                                    <button
-                                        onclick="setAdminPersona('omega')"
-                                        class="p-3 rounded-xl border text-xs font-bold transition ${adminPersona === 'omega' ? 'bg-rose-600 border-rose-400 text-white' : 'bg-slate-950 border-slate-800 text-rose-400 hover:bg-slate-900'}">
-                                        [AI] 오메가로 변장
-                                    </button>
-                                </div>
-
-                                <div class="text-xs text-purple-200">
-                                    현재 적용 중인 닉네임:
-                                    <strong class="text-white">${getEffectiveAuthor()}</strong>
-                                </div>
-                            </div>
                         ` : ''}
 
-                        <div>
-                            <h2 class="text-2xl font-black text-white mb-6">
-                                시즌 및 기수 선택
-                            </h2>
-
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-                                <div
-                                    onclick="navigate('season', 's1', 'viewer')"
-                                    class="group cursor-pointer bg-blue-950/40 border-2 border-blue-600/40 hover:border-blue-500 p-6 rounded-2xl transition shadow-xl flex flex-col justify-between">
-                                    <div>
-                                        <div class="inline-block px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded-full mb-4">
-                                            파란색 바탕 (제한 없음)
-                                        </div>
-                                        <h3 class="text-2xl font-black text-blue-200 mb-2">1기</h3>
-                                        <p class="text-slate-300 text-sm">
-                                            변이 세상의 서막. 동물 변이 사태 직후의 기록과 주인공의 여정.
-                                        </p>
-                                    </div>
-
-                                    <div class="mt-6 flex items-center text-blue-400 font-semibold text-sm group-hover:translate-x-1 transition">
-                                        입장하기 <i class="fa-solid fa-arrow-right ml-2"></i>
-                                    </div>
-                                </div>
-
-                                <div
-                                    onclick="${isS2Unlocked ? "navigate('season', 's2', 'viewer')" : "startQuiz('s2')"}"
-                                    class="group cursor-pointer bg-emerald-950/40 border-2 ${isS2Unlocked ? 'border-emerald-600/40 hover:border-emerald-500' : 'border-slate-800 hover:border-emerald-700'} p-6 rounded-2xl transition shadow-xl flex flex-col justify-between">
-                                    <div>
-                                        <div class="inline-block px-3 py-1 ${isS2Unlocked ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'} text-xs font-bold rounded-full mb-4">
-                                            초록색 바탕 (${isS2Unlocked ? '입장 가능' : '1기 퀴즈 필요'})
-                                        </div>
-                                        <h3 class="text-2xl font-black text-emerald-200 mb-2">2기</h3>
-                                        <p class="text-slate-300 text-sm">
-                                            거생들의 등장과 남반구의 비밀. 1기 퀴즈 4문제를 통과하세요.
-                                        </p>
-                                    </div>
-
-                                    <div class="mt-6 flex items-center text-emerald-400 font-semibold text-sm group-hover:translate-x-1 transition">
-                                        ${isS2Unlocked ? '입장하기' : '퀴즈 풀고 입장하기'}
-                                        <i class="fa-solid fa-arrow-right ml-2"></i>
-                                    </div>
-                                </div>
-
-                                <div
-                                    onclick="${isS3P1Unlocked ? "navigate('season', 's3p1', 'viewer')" : "startQuiz('s3p1')"}"
-                                    class="group cursor-pointer bg-slate-800/40 border-2 ${isS3P1Unlocked ? 'border-slate-500 hover:border-slate-400' : 'border-slate-800 hover:border-slate-600'} p-6 rounded-2xl transition shadow-xl flex flex-col justify-between">
-                                    <div>
-                                        <div class="inline-block px-3 py-1 ${isS3P1Unlocked ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400'} text-xs font-bold rounded-full mb-4">
-                                            회색 바탕 (${isS3P1Unlocked ? '입장 가능' : '2기 퀴즈 필요'})
-                                        </div>
-                                        <h3 class="text-2xl font-black text-slate-200 mb-2">3기 PART 1</h3>
-                                        <p class="text-slate-300 text-sm">
-                                            지그문트 납치와 조사. 2기 퀴즈 4문제를 통과하세요.
-                                        </p>
-                                    </div>
-
-                                    <div class="mt-6 flex items-center text-slate-300 font-semibold text-sm group-hover:translate-x-1 transition">
-                                        ${isS3P1Unlocked ? '입장하기' : '퀴즈 풀고 입장하기'}
-                                        <i class="fa-solid fa-arrow-right ml-2"></i>
-                                    </div>
-                                </div>
-
-                                <div
-                                    onclick="${isS3P2Unlocked ? "navigate('season', 's3p2', 'viewer')" : "startQuiz('s3p2')"}"
-                                    class="group cursor-pointer bg-rose-950/40 border-2 ${isS3P2Unlocked ? 'border-rose-600/40 hover:border-rose-500' : 'border-slate-800 hover:border-rose-900'} p-6 rounded-2xl transition shadow-xl flex flex-col justify-between">
-                                    <div>
-                                        <div class="inline-block px-3 py-1 ${isS3P2Unlocked ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-400'} text-xs font-bold rounded-full mb-4">
-                                            빨간색 바탕 (${isS3P2Unlocked ? '입장 가능' : '3기 P1 퀴즈 필요'})
-                                        </div>
-                                        <h3 class="text-2xl font-black text-rose-200 mb-2">3기 PART 2</h3>
-                                        <p class="text-slate-300 text-sm">
-                                            카르민 스나구와의 대립. 3기 PART 1 퀴즈를 통과하세요.
-                                        </p>
-                                    </div>
-
-                                    <div class="mt-6 flex items-center text-rose-400 font-semibold text-sm group-hover:translate-x-1 transition">
-                                        ${isS3P2Unlocked ? '입장하기' : '퀴즈 풀고 입장하기'}
-                                        <i class="fa-solid fa-arrow-right ml-2"></i>
-                                    </div>
-                                </div>
-
-                            </div>
-                        </div>
-                    </main>
-                </div>
-            `;
-        }
-
-        function setAdminPersona(persona) {
-            adminPersona = persona;
-            render();
-        }
-
-        function logout() {
-            currentUser = null;
-            adminPersona = 'normal';
-
-            localStorage.removeItem('mutation_world_current_user');
-
-            navigate('login');
-        }
-
-        function renderQuizScreen() {
-            if (!currentQuizData) return '';
-
-            return `
-                <div class="flex-1 flex items-center justify-center p-4 bg-slate-950">
-                    <div class="max-w-xl w-full bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
-
-                        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
-                            <h2 class="text-xl font-black text-white">
-                                ${currentQuizData.title}
-                            </h2>
-                            <button
-                                onclick="navigate('dashboard')"
-                                class="text-xs text-slate-400 hover:text-white">
-                                돌아가기
-                            </button>
-                        </div>
-
-                        <div class="space-y-6">
-                            ${currentQuizData.questions.map((item, idx) => `
-                                <div class="space-y-2">
-                                    <label class="block text-sm font-bold text-slate-200">
-                                        Q${idx + 1}. ${item.q}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        id="quizAns_${idx}"
-                                        oninput="quizAnswers[${idx}] = this.value"
-                                        class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500"
-                                        placeholder="정답 입력">
-                                </div>
-                            `).join('')}
-                        </div>
-
                         <button
-                            onclick="submitQuiz()"
-                            class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg transition">
-                            정답 제출하기
+                            onclick="${popupPage === 2 ? 'closePopups()' : 'popupPage++;render()'}"
+                            class="px-5 py-2 bg-blue-600 rounded-lg text-sm font-bold">
+                            ${popupPage === 2 ? '확인' : '다음'}
                         </button>
+
                     </div>
                 </div>
-            `;
+            </div>
+        </div>
+    `;
+}
+
+
+/* =========================================
+   퀴즈
+========================================= */
+
+function startQuiz(seasonKey) {
+    currentQuizData = quizzes[seasonKey];
+    quizAnswers = {};
+
+    currentView = 'quiz';
+
+    render();
+}
+
+function submitQuiz() {
+    let allCorrect = true;
+
+    currentQuizData.questions.forEach((item, index) => {
+        const userAns = (quizAnswers[index] || '')
+            .trim()
+            .replace(/\s+/g, '');
+
+        const isMatch = item.answers.some(
+            ans => ans.replace(/\s+/g, '') === userAns
+        );
+
+        if (!isMatch) allCorrect = false;
+    });
+
+    if (allCorrect) {
+        if (!userProgress[currentUser.username]) {
+            userProgress[currentUser.username] = {};
         }
 
-        function renderSeasonScreen() {
-            let themeClass = 'from-blue-950/30 to-slate-950';
+        userProgress[currentUser.username][
+            currentQuizData.nextSeason
+        ] = true;
 
-            return `
-                <div class="flex-1 flex flex-col bg-gradient-to-b ${themeClass} relative">
+        saveData();
 
-                    <header class="bg-slate-900/80 backdrop-blur border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-                        <div class="flex items-center space-x-4">
-                            <button
-                                onclick="navigate('dashboard')"
-                                class="text-xs text-slate-400 hover:text-white">
-                                <i class="fa-solid fa-arrow-left mr-1"></i>
-                                메인으로
-                            </button>
+        alert('퀴즈 정통과! 해당 기수의 입장이 허용됩니다.');
 
-                            <h2 class="text-lg font-black text-white">
-                                시즌 공간 (${currentSeason})
+        navigate(
+            'season',
+            currentQuizData.nextSeason,
+            'viewer'
+        );
+
+    } else {
+        alert('정답이 틀렸습니다. 다시 확인하고 도전해주세요!');
+    }
+}
+
+
+/* =========================================
+   메인 렌더링
+========================================= */
+
+function render() {
+    const app = document.getElementById('app');
+
+    if (!app) return;
+
+    app.innerHTML = '';
+
+    if (currentView === 'login') {
+        app.innerHTML = renderLogin();
+
+    } else if (currentView === 'signup') {
+        app.innerHTML = renderSignup();
+
+    } else if (currentView === 'dashboard') {
+        app.innerHTML = renderDashboard();
+
+    } else if (currentView === 'quiz') {
+        app.innerHTML = renderQuiz();
+
+    } else if (currentView === 'season') {
+        app.innerHTML = renderSeason();
+    }
+}
+
+
+/* =========================================
+   로그인 화면
+========================================= */
+
+function renderLogin() {
+    return `
+        <div class="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-purple-950 to-slate-950">
+
+            <div class="max-w-md w-full bg-slate-900/80 p-8 rounded-2xl border border-slate-800 shadow-2xl">
+
+                <div class="text-center mb-8">
+
+                    <h1 class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 mb-2">
+                        변이 세상
+                    </h1>
+
+                    <p class="text-slate-400 text-sm">
+                        공식 팬 커뮤니티 & 아카이브 시스템
+                    </p>
+
+                </div>
+
+                <form onsubmit="handleLogin(event)" class="space-y-5">
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-2">
+                            아이디
+                        </label>
+
+                        <input
+                            type="text"
+                            id="loginId"
+                            required
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3"
+                            placeholder="아이디 입력">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-2">
+                            비밀번호
+                        </label>
+
+                        <input
+                            type="password"
+                            id="loginPw"
+                            required
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3"
+                            placeholder="비밀번호 입력">
+                    </div>
+
+                    <button
+                        class="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 font-bold rounded-xl">
+                        로그인
+                    </button>
+
+                </form>
+
+                <div class="mt-6 text-center">
+
+                    <button
+                        onclick="navigate('signup')"
+                        class="text-sm text-blue-400 hover:underline">
+                        계정이 없으신가요? 회원가입
+                    </button>
+
+                </div>
+
+            </div>
+        </div>
+    `;
+}
+
+
+/* =========================================
+   회원가입 화면
+========================================= */
+
+function renderSignup() {
+    return `
+        <div class="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-purple-950 to-slate-950">
+
+            <div class="max-w-md w-full bg-slate-900/80 p-8 rounded-2xl border border-slate-800 shadow-2xl">
+
+                <div class="text-center mb-8">
+                    <h1 class="text-3xl font-black mb-2">
+                        회원가입
+                    </h1>
+
+                    <p class="text-slate-400 text-sm">
+                        변이 세상의 시민이 되어주세요
+                    </p>
+                </div>
+
+                <form onsubmit="handleSignup(event)" class="space-y-5">
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-2">
+                            아이디
+                        </label>
+
+                        <input
+                            type="text"
+                            id="signupId"
+                            required
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3"
+                            placeholder="사용할 아이디">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-2">
+                            비밀번호
+                        </label>
+
+                        <input
+                            type="password"
+                            id="signupPw"
+                            required
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3"
+                            placeholder="사용할 비밀번호">
+                    </div>
+
+                    <button
+                        class="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 font-bold rounded-xl">
+                        가입 완료
+                    </button>
+
+                </form>
+
+                <div class="mt-6 text-center">
+
+                    <button
+                        onclick="navigate('login')"
+                        class="text-sm text-slate-400 hover:underline">
+                        로그인 화면으로 돌아가기
+                    </button>
+
+                </div>
+
+            </div>
+        </div>
+    `;
+}
+
+
+/* =========================================
+   대시보드
+========================================= */
+
+function renderDashboard() {
+    if (!currentUser) return '';
+
+    const admin = isAdmin();
+    const progress = userProgress[currentUser.username] || {};
+
+    const unlocked = {
+        s2: admin || !!progress.s2,
+        s3p1: admin || !!progress.s3p1,
+        s3p2: admin || !!progress.s3p2
+    };
+
+    const cards = [
+        [
+            's1',
+            '1기',
+            '파란색 바탕 · 제한 없음',
+            '변이 세상의 서막. 동물 변이 사태 직후의 기록과 주인공의 여정.',
+            'blue',
+            true
+        ],
+        [
+            's2',
+            '2기',
+            '초록색 바탕',
+            '거생들의 등장과 남반구의 비밀. 1기 퀴즈 4문제를 통과하세요.',
+            'emerald',
+            unlocked.s2
+        ],
+        [
+            's3p1',
+            '3기 PART 1',
+            '회색 바탕',
+            '지그문트 납치와 조사. 2기 퀴즈 4문제를 통과하세요.',
+            'slate',
+            unlocked.s3p1
+        ],
+        [
+            's3p2',
+            '3기 PART 2',
+            '빨간색 바탕',
+            '카르민 스나구와의 대립. 3기 PART 1 퀴즈를 통과하세요.',
+            'rose',
+            unlocked.s3p2
+        ]
+    ];
+
+    const styles = {
+        blue: 'border-blue-600/40 bg-blue-950/40 text-blue-300',
+        emerald: 'border-emerald-600/40 bg-emerald-950/40 text-emerald-300',
+        slate: 'border-slate-500 bg-slate-800/40 text-slate-300',
+        rose: 'border-rose-600/40 bg-rose-950/40 text-rose-300'
+    };
+
+    return `
+        <div class="flex-1 flex flex-col">
+
+            <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
+
+                <div>
+                    <h1 class="text-xl font-black text-blue-300">
+                        변이 세상
+                    </h1>
+
+                    <span class="text-xs text-slate-400">
+                        반가워요,
+                        <b class="text-white">${esc(currentUser.username)}</b>님
+                        ${admin ? '(관리자)' : ''}
+                    </span>
+                </div>
+
+                <button
+                    onclick="logout()"
+                    class="text-xs text-rose-400 px-3 py-2 bg-rose-950/30 rounded-lg">
+                    로그아웃
+                </button>
+
+            </header>
+
+            <main class="flex-1 max-w-6xl w-full mx-auto p-6 space-y-8">
+
+                ${admin ? `
+                    <section class="bg-slate-900 border border-purple-900 rounded-2xl p-6 space-y-4">
+
+                        <div class="flex justify-between flex-wrap gap-2">
+
+                            <h2 class="font-bold text-purple-300">
+                                <i class="fa-solid fa-mask mr-2"></i>
+                                관리자 페르소나
                             </h2>
+
+                            <span class="text-xs text-slate-400">
+                                선택한 이름으로 게시글·댓글 작성
+                            </span>
+
                         </div>
 
-                        <div class="text-xs text-slate-400">
-                            접속자:
-                            <strong class="text-white">${currentUser.username}</strong>
-                        </div>
-                    </header>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
 
-                    <main class="flex-1 max-w-4xl w-full mx-auto p-6 text-center space-y-6">
-                        <div class="p-10 bg-slate-900/60 rounded-2xl border border-slate-800 shadow-xl space-y-4">
-                            <h3 class="text-2xl font-black text-white">
-                                실시간 온라인 커뮤니티 공간
+                            ${[
+                                ['normal', '기본'],
+                                ['alpha', '알파'],
+                                ['beta', '베타'],
+                                ['omega', '오메가']
+                            ].map(([v, n]) => `
+                                <button
+                                    onclick="setAdminPersona('${v}')"
+                                    class="p-3 rounded-xl border ${
+                                        adminPersona === v
+                                            ? 'bg-purple-700 border-purple-400'
+                                            : 'bg-slate-950 border-slate-700'
+                                    }">
+                                    ${n}
+                                </button>
+                            `).join('')}
+
+                        </div>
+
+                        <p class="text-xs text-purple-200">
+                            현재 표시 이름:
+                            <b class="text-white">${esc(getEffectiveAuthor())}</b>
+                        </p>
+
+                    </section>
+                ` : ''}
+
+                <h2 class="text-2xl font-black">
+                    시즌 및 기수 선택
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+
+                    ${cards.map(([key, name, tag, desc, color, open]) => `
+                        <div
+                            onclick="${
+                                open
+                                    ? `navigate('season','${key}','viewer')`
+                                    : `startQuiz('${key}')`
+                            }"
+                            class="cursor-pointer border-2 ${styles[color]} p-6 rounded-2xl shadow-xl hover:brightness-125 transition">
+
+                            <span class="text-xs font-bold">
+                                ${tag}
+                                ·
+                                ${open ? '입장 가능' : '퀴즈 필요'}
+                            </span>
+
+                            <h3 class="text-2xl font-black my-3">
+                                ${name}
                             </h3>
 
-                            <p class="text-slate-300 text-sm">
-                                JSONBin 연동을 통해 이 링크로 접속하는 모든 사용자가 동일한 데이터와 시즌 진행 상황을 공유합니다. 데이터는 약 8초 간격으로 갱신됩니다.
+                            <p class="text-sm text-slate-300">
+                                ${desc}
                             </p>
 
-                            <button
-                                onclick="navigate('dashboard')"
-                                class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition">
-                                대시보드로 돌아가기
-                            </button>
+                            <p class="mt-6 font-semibold text-sm">
+                                ${open ? '입장하기' : '퀴즈 풀고 입장하기'} →
+                            </p>
+
                         </div>
-                    </main>
+                    `).join('')}
+
+                    ${['4기', '파이널'].map(name => `
+                        <div
+                            onclick="alert('아직 구현되지 않은 기능입니다.')"
+                            class="cursor-pointer border-2 border-slate-800 bg-slate-900/50 p-6 rounded-2xl hover:border-slate-600">
+
+                            <span class="text-xs text-slate-500">
+                                미구현
+                            </span>
+
+                            <h3 class="text-2xl font-black my-3">
+                                ${name}
+                            </h3>
+
+                            <p class="text-sm text-slate-400">
+                                아직 공개되지 않은 시즌입니다.
+                            </p>
+
+                            <p class="mt-6 text-sm">
+                                확인하기 →
+                            </p>
+
+                        </div>
+                    `).join('')}
+
                 </div>
-            `;
+
+            </main>
+        </div>
+    `;
+}
+
+
+/* =========================================
+   퀴즈 화면
+========================================= */
+
+function renderQuiz() {
+    if (!currentQuizData) return '';
+
+    return `
+        <div class="flex-1 flex items-center justify-center p-4">
+
+            <div class="max-w-xl w-full bg-slate-900 border border-slate-800 p-8 rounded-2xl space-y-6">
+
+                <div class="flex justify-between border-b border-slate-800 pb-4">
+
+                    <h2 class="text-xl font-black">
+                        ${currentQuizData.title}
+                    </h2>
+
+                    <button
+                        onclick="navigate('dashboard')"
+                        class="text-xs text-slate-400">
+                        돌아가기
+                    </button>
+
+                </div>
+
+                <div class="space-y-6">
+
+                    ${currentQuizData.questions.map((q, i) => `
+                        <div>
+
+                            <label class="block text-sm font-bold mb-2">
+                                Q${i + 1}. ${q.q}
+                            </label>
+
+                            <input
+                                id="quizAns_${i}"
+                                oninput="quizAnswers[${i}]=this.value"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3"
+                                placeholder="정답 입력">
+
+                        </div>
+                    `).join('')}
+
+                </div>
+
+                <button
+                    onclick="submitQuiz()"
+                    class="w-full py-4 bg-blue-600 hover:bg-blue-500 font-bold rounded-xl">
+                    정답 제출하기
+                </button>
+
+            </div>
+        </div>
+    `;
+}
+
+
+/* =========================================
+   시즌 화면
+========================================= */
+
+function seasonTheme() {
+    return {
+        s1: 'from-blue-950/50',
+        s2: 'from-emerald-950/50',
+        s3p1: 'from-slate-700/40',
+        s3p2: 'from-rose-950/50'
+    }[currentSeason] || 'from-blue-950/30';
+}
+
+function renderSeason() {
+    const season = seasons[currentSeason];
+
+    if (!season) return '';
+
+    const seasonPosts = posts.filter(
+        p => p.season === currentSeason
+    );
+
+    const seasonPromos = promotions.filter(
+        p => p.season === currentSeason
+    );
+
+    return `
+        <div class="flex-1 flex flex-col bg-gradient-to-b ${seasonTheme()} to-slate-950 relative">
+
+            <header class="bg-slate-900/90 border-b border-slate-800 px-5 py-4 flex justify-between items-center">
+
+                <div class="flex items-center gap-4">
+
+                    <button
+                        onclick="navigate('dashboard')"
+                        class="text-xs text-slate-400">
+                        <i class="fa-solid fa-arrow-left mr-1"></i>
+                        메인으로
+                    </button>
+
+                    <h2 class="font-black">
+                        ${season.name}
+                    </h2>
+
+                </div>
+
+                <span class="text-xs text-slate-400">
+                    ${esc(currentUser.username)}
+                </span>
+
+            </header>
+
+            <nav class="flex flex-wrap justify-center gap-2 p-4 bg-slate-900/50 border-b border-slate-800">
+
+                ${[
+                    ['viewer', '뷰어'],
+                    ['writer', '라이터'],
+                    ['promotion', '홍보']
+                ].map(([value, name]) => `
+                    <button
+                        onclick="setTab('${value}')"
+                        class="px-6 py-2 rounded-xl text-sm font-bold ${
+                            currentTab === value
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-800 text-slate-300'
+                        }">
+                        ${name}
+                    </button>
+                `).join('')}
+
+            </nav>
+
+            <main class="flex-1 max-w-4xl w-full mx-auto p-5 space-y-5">
+
+                ${currentTab === 'viewer' ? `
+
+                    <section class="bg-slate-900/70 border border-slate-800 rounded-2xl p-8 text-center">
+
+                        <h3 class="text-2xl font-black mb-3">
+                            작품 아카이브 · ${season.name}
+                        </h3>
+
+                        <p class="text-slate-300 text-sm">
+                            작가 및 고위 관계자가 공개한 공식 작품 내용을 확인하는 공간입니다.
+                        </p>
+
+                        <p class="text-slate-500 text-xs mt-5">
+                            아직 등록된 공식 작품 내용이 없습니다.
+                        </p>
+
+                    </section>
+
+                ` : ''}
+
+
+                ${currentTab === 'writer' ? `
+
+                    ${isAdmin() ? `
+
+                        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+
+                            <h3 class="font-bold">
+                                새 게시글 작성
+                            </h3>
+
+                            <input
+                                id="postTitle"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
+                                placeholder="제목">
+
+                            <textarea
+                                id="postContent"
+                                rows="4"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
+                                placeholder="내용을 입력하세요">
+                            </textarea>
+
+                            <button
+                                onclick="createPost()"
+                                class="px-5 py-2 bg-blue-600 rounded-lg font-bold">
+                                게시하기
+                            </button>
+
+                        </section>
+
+                    ` : ''}
+
+                    <section class="space-y-4">
+
+                        <h3 class="font-bold text-xl">
+                            팬 커뮤니티 게시판
+                        </h3>
+
+                        ${
+                            seasonPosts.length
+                                ? seasonPosts.slice().reverse().map(renderPost).join('')
+                                : '<p class="text-center text-slate-500 py-10">아직 게시글이 없습니다.</p>'
+                        }
+
+                    </section>
+
+                ` : ''}
+
+
+                ${currentTab === 'promotion' ? `
+
+                    <section class="rounded-2xl border border-rose-900/50 bg-slate-900/80 p-6 text-center">
+
+                        <p class="glitch-effect font-black text-lg md:text-xl">
+                            ${esc(season.banner)}
+                        </p>
+
+                    </section>
+
+                    ${isAdmin() ? `
+
+                        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+
+                            <h3 class="font-bold">
+                                관리자 홍보 게시글 작성
+                            </h3>
+
+                            <input
+                                id="promoTitle"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
+                                placeholder="홍보 제목">
+
+                            <textarea
+                                id="promoContent"
+                                rows="3"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3"
+                                placeholder="홍보 내용">
+                            </textarea>
+
+                            <input
+                                id="promoImage"
+                                type="file"
+                                accept="image/*"
+                                class="block w-full text-sm text-slate-400">
+
+                            <button
+                                onclick="createPromotion()"
+                                class="px-5 py-2 bg-rose-700 rounded-lg font-bold">
+                                홍보 등록
+                            </button>
+
+                        </section>
+
+                    ` : ''}
+
+                    <section class="space-y-4">
+
+                        <h3 class="font-bold text-xl">
+                            홍보 게시판
+                        </h3>
+
+                        ${
+                            seasonPromos.length
+                                ? seasonPromos.slice().reverse().map(renderPromotion).join('')
+                                : '<p class="text-center text-slate-500 py-8">등록된 홍보가 없습니다.</p>'
+                        }
+
+                    </section>
+
+                ` : ''}
+
+            </main>
+
+            ${showSeasonPopups ? renderPopups() : ''}
+
+        </div>
+    `;
+}
+
+
+/* =========================================
+   탭 이동
+========================================= */
+
+function setTab(value) {
+    currentTab = value;
+    render();
+}
+
+
+/* =========================================
+   게시글
+========================================= */
+
+function renderPost(post) {
+    const liked = (post.likedUsers || []).includes(
+        currentUser.username
+    );
+
+    return `
+        <article class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+
+            <div class="flex justify-between gap-3">
+
+                <div>
+
+                    <h4 class="font-bold text-lg">
+                        ${esc(post.title)}
+                    </h4>
+
+                    <p class="text-xs text-slate-500">
+                        ${esc(post.author)} · ${esc(post.createdAt)}
+                    </p>
+
+                </div>
+
+                ${
+                    post.authorId === currentUser.username
+                        ? `<button onclick="deletePost('${post.id}')" class="text-xs text-rose-400">삭제</button>`
+                        : ''
+                }
+
+            </div>
+
+            <p class="text-sm whitespace-pre-wrap text-slate-300">
+                ${esc(post.content)}
+            </p>
+
+            <div class="flex items-center gap-4">
+
+                <button
+                    onclick="toggleLike('${post.id}')"
+                    class="text-sm ${liked ? 'text-rose-400' : 'text-slate-400'}">
+
+                    <i class="fa-solid fa-heart mr-1"></i>
+                    ${(post.likedUsers || []).length}
+
+                </button>
+
+                <span class="text-xs text-slate-500">
+                    댓글 ${(post.comments || []).length}개
+                </span>
+
+                ${
+                    isAdmin()
+                        ? `<span class="text-xs text-purple-300">반응 확인: ${esc((post.likedUsers || []).join(', ') || '없음')}</span>`
+                        : ''
+                }
+
+            </div>
+
+            <div class="space-y-2">
+
+                ${(post.comments || []).map(comment => `
+                    <div class="bg-slate-950 rounded-lg p-3 text-sm">
+
+                        <div class="flex justify-between">
+
+                            <b>${esc(comment.author)}</b>
+
+                            <span class="text-xs text-slate-600">
+                                ${esc(comment.createdAt)}
+                            </span>
+
+                        </div>
+
+                        <p class="text-slate-300 mt-1 whitespace-pre-wrap">
+                            ${esc(comment.content)}
+                        </p>
+
+                    </div>
+                `).join('')}
+
+            </div>
+
+            <div class="flex gap-2">
+
+                <input
+                    id="comment_${post.id}"
+                    class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm"
+                    placeholder="댓글 입력">
+
+                <button
+                    onclick="addComment('${post.id}')"
+                    class="px-4 bg-slate-700 rounded-lg text-sm">
+                    등록
+                </button>
+
+            </div>
+
+        </article>
+    `;
+}
+
+function createPost() {
+    const title = document.getElementById('postTitle')?.value.trim();
+    const content = document.getElementById('postContent')?.value.trim();
+
+    if (!title || !content) {
+        alert('제목과 내용을 입력하세요.');
+        return;
+    }
+
+    posts.push({
+        id: crypto.randomUUID(),
+        season: currentSeason,
+        title,
+        content,
+        author: getEffectiveAuthor(),
+        authorId: currentUser.username,
+        createdAt: getDetailedTimeString(),
+        likedUsers: [],
+        comments: []
+    });
+
+    saveData().then(render);
+}
+
+function deletePost(id) {
+    const post = posts.find(p => p.id === id);
+
+    if (!post || post.authorId !== currentUser.username) return;
+
+    if (!confirm('게시글을 삭제할까요?')) return;
+
+    posts = posts.filter(p => p.id !== id);
+
+    saveData().then(render);
+}
+
+function toggleLike(id) {
+    const post = posts.find(p => p.id === id);
+
+    if (!post) return;
+
+    post.likedUsers ??= [];
+
+    const index = post.likedUsers.indexOf(currentUser.username);
+
+    if (index >= 0) {
+        post.likedUsers.splice(index, 1);
+    } else {
+        post.likedUsers.push(currentUser.username);
+    }
+
+    saveData().then(render);
+}
+
+function addComment(id) {
+    const post = posts.find(p => p.id === id);
+
+    const input = document.getElementById('comment_' + id);
+
+    const content = input?.value.trim();
+
+    if (!post || !content) return;
+
+    post.comments ??= [];
+
+    post.comments.push({
+        author: getEffectiveAuthor(),
+        authorId: currentUser.username,
+        content,
+        createdAt: getDetailedTimeString()
+    });
+
+    saveData().then(render);
+}
+
+
+/* =========================================
+   홍보 게시글
+========================================= */
+
+function renderPromotion(promo) {
+    return `
+        <article class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+
+            <h4 class="font-bold text-lg">
+                ${esc(promo.title)}
+            </h4>
+
+            <p class="text-xs text-slate-500">
+                ${esc(promo.author)} · ${esc(promo.createdAt)}
+            </p>
+
+            <p class="text-sm whitespace-pre-wrap">
+                ${esc(promo.content)}
+            </p>
+
+            ${
+                promo.image
+                    ? `<img src="${promo.image}" alt="홍보 이미지" class="max-h-96 max-w-full rounded-xl mx-auto object-contain">`
+                    : ''
+            }
+
+        </article>
+    `;
+}
+
+async function createPromotion() {
+    if (!isAdmin()) return;
+
+    const title = document.getElementById('promoTitle')?.value.trim();
+    const content = document.getElementById('promoContent')?.value.trim();
+
+    const file = document.getElementById('promoImage')?.files?.[0];
+
+    if (!title || !content) {
+        alert('제목과 내용을 입력하세요.');
+        return;
+    }
+
+    let image = '';
+
+    if (file) {
+
+        if (file.size > 1500000) {
+            alert('이미지는 1.5MB 이하로 선택하세요.');
+            return;
         }
 
-        // 앱 초기 실행
-        window.addEventListener('DOMContentLoaded', initSystem);
-    </script>
+        image = await new Promise((resolve, reject) => {
+
+            const reader = new FileReader();
+
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+
+            reader.readAsDataURL(file);
+
+        });
+    }
+
+    promotions.push({
+        id: crypto.randomUUID(),
+        season: currentSeason,
+        title,
+        content,
+        image,
+        author: getEffectiveAuthor(),
+        createdAt: getDetailedTimeString()
+    });
+
+    saveData().then(render);
+}
+
+
+/* =========================================
+   초기 실행
+========================================= */
+
+window.addEventListener('DOMContentLoaded', initSystem);
+
+</script>
 </body>
 </html>
