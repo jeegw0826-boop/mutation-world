@@ -74,6 +74,8 @@ let syncTimer = null;
 let saveQueue = Promise.resolve();
 let lastLoadedJSON = '';
 
+let connectionWarning = '';
+
 /* =========================================
    관리자 계정
 ========================================= */
@@ -84,8 +86,7 @@ const ADMIN_PASSWORD = 'wlrmsdn0826!';
 function isAdmin() {
     return !!(
         currentUser &&
-        currentUser.username === ADMIN_ID &&
-        currentUser.isAdmin === true
+        currentUser.username === ADMIN_ID
     );
 }
 
@@ -228,11 +229,13 @@ function validateJSONBin() {
     if (
         !config.binId ||
         config.binId.includes('YOUR_') ||
+        config.binId.includes('블라인딩') ||
         !config.accessKey ||
-        config.accessKey.includes('YOUR_')
+        config.accessKey.includes('YOUR_') ||
+        config.accessKey.includes('블라인딩')
     ) {
         throw new Error(
-            'index.html 상단에 JSONBin Bin ID와 Access Key를 입력하세요.'
+            'index.html 상단에 실제 JSONBin Bin ID와 Access Key를 입력하세요.'
         );
     }
 }
@@ -303,62 +306,100 @@ function databaseSnapshot() {
 ========================================= */
 
 async function initSystem() {
+    let databaseConnected = false;
+
     try {
         validateJSONBin();
 
         const record = await jsonBinRequest('GET');
+
         applyDatabase(record);
 
-        const savedUser = localStorage.getItem(
-            'mutation_world_current_user'
-        );
+        databaseConnected = true;
+        connectionWarning = '';
 
-        if (savedUser) {
-            try {
-                const saved = JSON.parse(savedUser);
+    } catch (error) {
+        console.error('초기 JSONBin 연결 실패:', error);
 
+        /*
+           JSONBin 연결이 실패해도 앱 전체를 중단하지 않음.
+           관리자 로그인 화면은 정상적으로 표시함.
+        */
+
+        users = [];
+        posts = [];
+        promotions = [];
+        userProgress = {};
+        popupDismissed = {};
+
+        connectionWarning =
+            '온라인 데이터 연결에 실패했습니다. 로그인 화면은 이용할 수 있지만 게시글과 계정 데이터의 온라인 저장은 연결 복구 후 가능합니다.';
+    }
+
+    const savedUser = localStorage.getItem(
+        'mutation_world_current_user'
+    );
+
+    if (savedUser) {
+        try {
+            const saved = JSON.parse(savedUser);
+
+            if (saved.username === ADMIN_ID) {
+                /*
+                   관리자는 JSONBin에 계정이 저장되어 있지 않아도
+                   브라우저에 로그인 정보가 남아 있으면 복원함.
+                */
+
+                let adminAccount = users.find(
+                    u => u.username === ADMIN_ID
+                );
+
+                if (!adminAccount) {
+                    adminAccount = {
+                        username: ADMIN_ID,
+                        password: ADMIN_PASSWORD,
+                        isAdmin: true,
+                        createdAt: getDetailedTimeString()
+                    };
+
+                    users.push(adminAccount);
+                }
+
+                adminAccount.isAdmin = true;
+                currentUser = adminAccount;
+
+            } else {
                 currentUser = users.find(
                     u => u.username === saved.username
                 ) || null;
-
-            } catch (_) {
-                currentUser = null;
             }
+
+        } catch (_) {
+            currentUser = null;
         }
-
-        if (currentUser) {
-            currentView = 'dashboard';
-        } else {
-            currentView = 'login';
-        }
-
-        adminPersona = 'normal';
-
-        lastLoadedJSON = JSON.stringify(databaseSnapshot());
-
-        if (syncTimer) clearInterval(syncTimer);
-
-        syncTimer = setInterval(refreshSharedData, 8000);
-
-        render();
-
-    } catch (error) {
-        document.getElementById('app').innerHTML = `
-            <div class="m-auto max-w-xl p-6 text-center">
-                <h2 class="text-xl font-bold text-rose-400 mb-3">
-                    JSONBin 연결 실패
-                </h2>
-
-                <p class="text-slate-300 text-sm">
-                    ${esc(error.message)}
-                </p>
-
-                <p class="text-slate-500 text-xs mt-3">
-                    JSONBin Bin과 상단 설정값을 확인한 뒤 새로고침하세요.
-                </p>
-            </div>
-        `;
     }
+
+    if (currentUser) {
+        currentView = 'dashboard';
+    } else {
+        currentView = 'login';
+    }
+
+    adminPersona = 'normal';
+
+    lastLoadedJSON = JSON.stringify(databaseSnapshot());
+
+    if (syncTimer) {
+        clearInterval(syncTimer);
+    }
+
+    /*
+       최초 연결에 실패했더라도 주기적으로 재연결을 시도함.
+    */
+
+    syncTimer = setInterval(refreshSharedData, 8000);
+
+    render();
 }
 
 async function refreshSharedData() {
@@ -381,11 +422,33 @@ async function refreshSharedData() {
 
             applyDatabase(incoming);
 
-            currentUser = activeUsername
-                ? users.find(u => u.username === activeUsername) || null
-                : null;
+            if (activeUsername === ADMIN_ID) {
+                let adminAccount = users.find(
+                    u => u.username === ADMIN_ID
+                );
+
+                if (!adminAccount) {
+                    adminAccount = {
+                        username: ADMIN_ID,
+                        password: ADMIN_PASSWORD,
+                        isAdmin: true,
+                        createdAt: getDetailedTimeString()
+                    };
+
+                    users.push(adminAccount);
+                }
+
+                adminAccount.isAdmin = true;
+                currentUser = adminAccount;
+
+            } else {
+                currentUser = activeUsername
+                    ? users.find(u => u.username === activeUsername) || null
+                    : null;
+            }
 
             lastLoadedJSON = incomingJSON;
+            connectionWarning = '';
 
             if (
                 !currentUser &&
@@ -404,16 +467,31 @@ async function refreshSharedData() {
 }
 
 function saveData() {
-    saveQueue = saveQueue.then(async () => {
-        const snapshot = databaseSnapshot();
+    /*
+       이전 저장이 실패했더라도 다음 저장 요청은 계속 진행함.
+    */
 
-        await jsonBinRequest('PUT', snapshot);
+    const task = saveQueue
+        .catch(() => {})
+        .then(async () => {
+            const snapshot = databaseSnapshot();
 
-        lastLoadedJSON = JSON.stringify(snapshot);
-    });
+            await jsonBinRequest('PUT', snapshot);
 
-    return saveQueue.catch(error => {
-        alert('온라인 저장에 실패했습니다: ' + error.message);
+            lastLoadedJSON = JSON.stringify(snapshot);
+            connectionWarning = '';
+
+            return true;
+        });
+
+    saveQueue = task;
+
+    return task.catch(error => {
+        console.error('온라인 데이터 저장 실패:', error);
+
+        connectionWarning =
+            '온라인 저장에 실패했습니다. JSONBin 설정과 연결 상태를 확인하세요.';
+
         throw error;
     });
 }
@@ -448,15 +526,14 @@ function handleLogin(e) {
     const pw = document.getElementById('loginPw').value;
 
     /*
-       관리자 전용 로그인
-       지정된 관리자 아이디와 비밀번호가 일치해야
-       관리자 계정으로 로그인할 수 있음.
+       관리자 로그인:
+       JSONBin 저장 성공 여부와 로그인 절차를 분리함.
     */
 
     if (id === ADMIN_ID) {
 
         if (pw !== ADMIN_PASSWORD) {
-            alert('아이디 또는 비밀번호가 일치하지 않습니다.');
+            alert('관리자 아이디 또는 비밀번호가 틀렸습니다.');
             return;
         }
 
@@ -473,14 +550,12 @@ function handleLogin(e) {
             };
 
             users.push(adminAccount);
-
-        } else {
-            adminAccount.password = ADMIN_PASSWORD;
-            adminAccount.isAdmin = true;
         }
 
-        currentUser = adminAccount;
+        adminAccount.password = ADMIN_PASSWORD;
+        adminAccount.isAdmin = true;
 
+        currentUser = adminAccount;
         adminPersona = 'normal';
 
         localStorage.setItem(
@@ -490,19 +565,30 @@ function handleLogin(e) {
             })
         );
 
-        saveData().then(() => {
-            navigate('dashboard');
-        }).catch(() => {
-            alert('관리자 계정 저장에 실패했습니다.');
+        /*
+           먼저 대시보드로 이동.
+           JSONBin 저장은 별도로 실행함.
+        */
+
+        currentView = 'dashboard';
+        currentSeason = null;
+        showSeasonPopups = false;
+
+        render();
+
+        saveData().catch(error => {
+            console.error('관리자 계정 저장 실패:', error);
         });
 
         return;
     }
 
+    // 일반 회원 로그인
     const found = users.find(
-        u => u.username === id &&
-        u.password === pw &&
-        u.isAdmin !== true
+        u =>
+            u.username === id &&
+            u.password === pw &&
+            u.username !== ADMIN_ID
     );
 
     if (!found) {
@@ -560,6 +646,8 @@ async function handleSignup(e) {
 
     } catch (error) {
         users = users.filter(u => u.username !== id);
+
+        alert('회원가입 저장에 실패했습니다. JSONBin 연결을 확인하세요.');
     }
 }
 
@@ -628,7 +716,10 @@ function dismissPopupsToday() {
 
     showSeasonPopups = false;
 
-    saveData();
+    saveData().catch(error => {
+        console.error(error);
+    });
+
     render();
 }
 
@@ -739,7 +830,9 @@ function submitQuiz() {
             currentQuizData.nextSeason
         ] = true;
 
-        saveData();
+        saveData().catch(error => {
+            console.error(error);
+        });
 
         alert('퀴즈 정통과! 해당 기수의 입장이 허용됩니다.');
 
@@ -805,6 +898,13 @@ function renderLogin() {
                     </p>
 
                 </div>
+
+                ${connectionWarning ? `
+                    <div class="mb-5 p-3 rounded-xl border border-amber-700/50 bg-amber-950/30 text-amber-300 text-xs leading-6">
+                        <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                        ${esc(connectionWarning)}
+                    </div>
+                ` : ''}
 
                 <form onsubmit="handleLogin(event)" class="space-y-5">
 
@@ -1689,7 +1789,11 @@ function createPost(type = 'writer') {
         comments: []
     });
 
-    saveData().then(render);
+    saveData()
+        .then(render)
+        .catch(() => {
+            alert('게시글 저장에 실패했습니다. JSONBin 연결을 확인하세요.');
+        });
 }
 
 function deletePost(id) {
@@ -1708,7 +1812,11 @@ function deletePost(id) {
 
     posts = posts.filter(p => p.id !== id);
 
-    saveData().then(render);
+    saveData()
+        .then(render)
+        .catch(() => {
+            alert('게시글 삭제 저장에 실패했습니다.');
+        });
 }
 
 
@@ -1733,7 +1841,11 @@ function toggleLike(id, type = 'post') {
         item.likedUsers.push(currentUser.username);
     }
 
-    saveData().then(render);
+    saveData()
+        .then(render)
+        .catch(() => {
+            alert('좋아요 저장에 실패했습니다.');
+        });
 }
 
 
@@ -1761,7 +1873,11 @@ function addComment(id, type = 'post') {
         createdAt: getDetailedTimeString()
     });
 
-    saveData().then(render);
+    saveData()
+        .then(render)
+        .catch(() => {
+            alert('댓글 저장에 실패했습니다.');
+        });
 }
 
 
@@ -1875,7 +1991,11 @@ async function createPromotion() {
         comments: []
     });
 
-    saveData().then(render);
+    saveData()
+        .then(render)
+        .catch(() => {
+            alert('홍보 게시글 저장에 실패했습니다.');
+        });
 }
 
 function deletePromotion(id) {
@@ -1889,7 +2009,11 @@ function deletePromotion(id) {
 
     promotions = promotions.filter(p => p.id !== id);
 
-    saveData().then(render);
+    saveData()
+        .then(render)
+        .catch(() => {
+            alert('홍보 게시글 삭제 저장에 실패했습니다.');
+        });
 }
 
 
